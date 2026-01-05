@@ -10,6 +10,7 @@
 #include <thread>
 #include <type_traits>
 #include <vector>
+#include <iostream>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -44,7 +45,10 @@ class thread_pool {
           if (task) {
             try {
               task();
+            } catch (const std::exception& e) {
+              std::cerr << "Worker thread caught exception: " << e.what() << std::endl;
             } catch (...) {
+              std::cerr << "Worker thread caught unknown exception" << std::endl;
             }
           }
         }

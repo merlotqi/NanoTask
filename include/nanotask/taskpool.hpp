@@ -15,8 +15,7 @@ namespace nanotask {
 
 class task_pool {
   thread_pool thread_pool_;
-
-  std::multimap<task_priority, std::shared_ptr<task_base>, std::greater<task_priority>> pending_queue_;
+  std::multimap<task_priority, std::shared_ptr<task_base>, std::greater<>> pending_queue_;
   std::unordered_map<std::string, std::shared_ptr<task_base>> running_tasks_;
   std::unordered_map<std::string, std::shared_ptr<task_base>> persistent_tasks_;
   std::list<std::shared_ptr<task_base>> completed_tasks_;
@@ -151,7 +150,7 @@ class task_pool {
     }
   }
 
-  void execute_task(const std::shared_ptr<task_base> &task) {
+  void execute_task(const std::shared_ptr<task_base>& task) {
     task->begin_execute();
     try {
       task->execute();
@@ -164,7 +163,7 @@ class task_pool {
     task_completed(task);
   }
 
-  void task_completed(const std::shared_ptr<task_base> &task) {
+  void task_completed(const std::shared_ptr<task_base>& task) {
     std::lock_guard<std::mutex> lock(tasks_mutex_);
     running_tasks_.erase(task->get_task_id());
     completed_tasks_.push_back(task);
