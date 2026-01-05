@@ -36,7 +36,7 @@ class task_manager : public task_observer {
     return instance;
   }
 
-  ~task_manager() {
+  ~task_manager() override {
     stop_cleanup_ = true;
     cleanup_cv_.notify_all();
     if (info_cleanup_thread_.joinable()) {
@@ -91,7 +91,7 @@ class task_manager : public task_observer {
     std::string task_id = generate_task_id();
     auto task = std::make_shared<functional_task>(task_id, std::move(func));
     task->set_observer(this);
-    std::string final_id = task_pool_.submit_task(task, input);
+    (void)task_pool_.submit_task(task, input);
     {
       std::lock_guard<std::mutex> lock(task_infos_mutex_);
       task_info info;

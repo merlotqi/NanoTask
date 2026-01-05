@@ -46,9 +46,9 @@ class thread_pool {
             try {
               task();
             } catch (const std::exception& e) {
-              std::cerr << "Worker thread caught exception: " << e.what() << std::endl;
+              std::cerr << "Worker thread caught exception: " << e.what() << '\n';
             } catch (...) {
-              std::cerr << "Worker thread caught unknown exception" << std::endl;
+              std::cerr << "Worker thread caught unknown exception" << '\n';
             }
           }
         }

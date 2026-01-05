@@ -17,19 +17,19 @@ namespace nanotask {
 
 using json = nlohmann::json;
 
-enum class task_lifecycle {
+enum class task_lifecycle : std::uint8_t {
   disposable,
   persistent,
 };
 
-enum class task_state {
+enum class task_state : std::uint8_t {
   pending,
   running,
   success,
   failure,
 };
 
-enum class task_priority {
+enum class task_priority : std::uint8_t {
   low,
   normal,
   high,
