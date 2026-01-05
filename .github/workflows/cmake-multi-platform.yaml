@@ -1,0 +1,65 @@
+name: Multi-Platform CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        compiler: [llvm, gcc]
+        exclude:
+          - os: windows-latest
+            compiler: gcc
+          - os: macos-latest
+            compiler: gcc
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-tidy nlohmann-json3-dev ninja-build
+
+    - name: Install Dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: brew install nlohmann-json ninja
+
+    - name: Install Dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        vcpkg install nlohmann-json:x64-windows
+
+    - name: Set Reusable Strings
+      id: strings
+      shell: bash
+      run: |
+        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+
+    - name: Configure CMake
+      run: |
+        cmake -B ${{ steps.strings.outputs.build-output-dir }} \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          -G Ninja
+
+    - name: Run Clang-Tidy (Linux Only)
+      if: runner.os == 'Linux'
+      run: |
+        run-clang-tidy -p ${{ steps.strings.outputs.build-output-dir }} -header-filter='include/.*'
+
+    - name: Build
+      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config Release
+
+    - name: Test
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: ctest -C Release

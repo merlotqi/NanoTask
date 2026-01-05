@@ -1,0 +1,47 @@
+---
+Checks: >
+  -*,
+  bugprone-*,
+  cppcoreguidelines-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  concurrency-*,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -bugprone-easily-swappable-parameters,
+  -readability-identifier-length,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-special-member-functions,
+  -readability-braces-around-statements,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -modernize-use-trailing-return-type
+
+WarningsAsErrors: 'bugprone-*,performance-*,concurrency-*'
+
+CheckOptions:
+  - key:             readability-identifier-naming.ClassCase
+    value:           lower_case
+  - key:             readability-identifier-naming.StructCase
+    value:           lower_case
+  - key:             readability-identifier-naming.FunctionCase
+    value:           lower_case
+  - key:             readability-identifier-naming.VariableCase
+    value:           lower_case
+  - key:             readability-identifier-naming.LocalVariableCase
+    value:           lower_case
+  - key:             readability-identifier-naming.ParameterCase
+    value:           lower_case
+  - key:             readability-identifier-naming.ConstantCase
+    value:           lower_case
+  - key:             readability-identifier-naming.EnumConstantCase
+    value:           lower_case
+  - key:             readability-identifier-naming.VariableMinLength
+    value:           2
+  - key:             readability-identifier-naming.LocalVariableMinLength
+    value:           2
+  - key:             readability-identifier-naming.ParameterMinLength
+    value:           2
+  - key:             readability-implicit-bool-conversion.AllowPointerToBool
+    value:           true
+...
