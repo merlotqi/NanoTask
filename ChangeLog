@@ -1,0 +1,29 @@
+Date: 2026-01-15
+Commit: 68dc46a
+Author: Merlot.Qi <merlotrain.mc@gmail.com>
+Message: feat: Convert naming convention to camelCase
+
+Date: 2026-01-05
+Commit: 84fafc0
+Author: Merlot.Qi <merlotrain.mc@gmail.com>
+Message: Update cmake-multi-platform.yaml
+
+Date: 2026-01-05
+Commit: 1f9cd79
+Author: Merlot.Qi <merlotrain.mc@gmail.com>
+Message: fix(lint): fix clang-tidy performance and bugprone warnings
+
+Date: 2026-01-05
+Commit: 871f322
+Author: Merlot.Qi <merlotrain.mc@gmail.com>
+Message: fix clang-tidy error.
+
+Date: 2026-01-05
+Commit: 72b2d22
+Author: Merlot.Qi <merlotrain.mc@gmail.com>
+Message: add nano example template.
+
+Date: 2026-01-05
+Commit: df6f24e
+Author: Merlot.Qi <merlotrain.mc@gmail.com>
+Message: Add NanoTask library for asynchronous task management

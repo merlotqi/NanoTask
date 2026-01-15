@@ -3,6 +3,7 @@
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -10,7 +11,6 @@
 #include <thread>
 #include <type_traits>
 #include <vector>
-#include <iostream>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -22,9 +22,9 @@
 #include <pthread.h>
 #endif
 
-class thread_pool {
+class ThreadPool {
  public:
-  explicit thread_pool(size_t threads = std::thread::hardware_concurrency()) : stop_(false) {
+  explicit ThreadPool(size_t threads = std::thread::hardware_concurrency()) : stop_(false) {
     workers_.reserve(threads);
     for (size_t i = 0; i < threads; ++i) {
       workers_.emplace_back([this, i] {
@@ -56,7 +56,7 @@ class thread_pool {
     }
   }
 
-  ~thread_pool() {
+  ~ThreadPool() {
     stop_.store(true, std::memory_order_release);
     condition_.notify_all();
     for (auto& worker : workers_) {
@@ -64,8 +64,8 @@ class thread_pool {
     }
   }
 
-  thread_pool(const thread_pool&) = delete;
-  thread_pool& operator=(const thread_pool&) = delete;
+  ThreadPool(const ThreadPool&) = delete;
+  ThreadPool& operator=(const ThreadPool&) = delete;
 
   template <typename F, typename... Args>
   [[nodiscard]] auto enqueue(F&& fun, Args&&... args) -> std::future<std::invoke_result_t<F, Args...>> {

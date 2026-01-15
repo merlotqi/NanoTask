@@ -1,5 +1,5 @@
 #include <iostream>
-#include <nanotask/task_manager.hpp>
+#include <velotask/taskmanager.hpp>
 
 int main() {
   std::cout << "Nanotask library integrated successfully!" << "\n";

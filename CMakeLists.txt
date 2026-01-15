@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(nanotask VERSION 1.0.0 LANGUAGES CXX)
+project(VeloTask VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,31 +18,24 @@ if(NOT nlohmann_json_FOUND)
     FetchContent_MakeAvailable(json)
 endif()
 
-add_library(nanotask INTERFACE)
-add_library(nanotask::nanotask ALIAS nanotask)
+add_library(VeloTask INTERFACE)
+add_library(VeloTask::VeloTask ALIAS VeloTask)
 
-target_include_directories(nanotask INTERFACE
+target_include_directories(VeloTask INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(nanotask INTERFACE
+target_link_libraries(VeloTask INTERFACE
     Threads::Threads
     nlohmann_json::nlohmann_json
 )
 
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    option(NANOTASK_BUILD_EXAMPLES "Build example applications" ON)
-    if(NANOTASK_BUILD_EXAMPLES)
-        add_executable(nanotask_example examples/main.cpp)
-        target_link_libraries(nanotask_example PRIVATE nanotask::nanotask)
-    endif()
-endif()
-
-if(NANOTASK_BUILD_EXAMPLES)
-    find_program(CLANG_TIDY_EXE NAMES "clang-tidy")
-    if(CLANG_TIDY_EXE)
-        set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE};-config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy")
+    option(VELOTASK_BUILD_EXAMPLES "Build example applications" ON)
+    if(VELOTASK_BUILD_EXAMPLES)
+        add_executable(velotask_example examples/main.cpp)
+        target_link_libraries(velotask_example PRIVATE VeloTask::VeloTask)
     endif()
 endif()
 
@@ -51,30 +44,30 @@ include(CMakePackageConfigHelpers)
 
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-install(TARGETS nanotask
-    EXPORT nanotaskTargets
+install(TARGETS VeloTask
+    EXPORT VeloTaskTargets
 )
 
-install(EXPORT nanotaskTargets
-    FILE nanotaskTargets.cmake
-    NAMESPACE nanotask::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nanotask
+install(EXPORT VeloTaskTargets
+    FILE VeloTaskTargets.cmake
+    NAMESPACE VeloTask::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/VeloTask
 )
 
 configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/NanoTaskConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/nanotaskConfig.cmake"
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nanotask
+    "${CMAKE_CURRENT_SOURCE_DIR}/VeloTaskConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/VeloTaskConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/VeloTask
 )
 
 write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/nanotaskConfigVersion.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/VeloTaskConfigVersion.cmake"
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
 
 install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/nanotaskConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/nanotaskConfigVersion.cmake"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nanotask
+    "${CMAKE_CURRENT_BINARY_DIR}/VeloTaskConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/VeloTaskConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/VeloTask
 )
