@@ -30,10 +30,12 @@ enum class TaskState : std::uint8_t {
 };
 
 enum class TaskPriority : std::uint8_t {
-  low,
-  normal,
-  high,
-  critical,
+  lowest = 0,
+  low = 25,
+  normal = 50,
+  high = 75,
+  critical = 100,
+  // Allow custom values up to 255
 };
 
 static inline std::string generateTaskId() {
@@ -93,8 +95,8 @@ class TaskObserver {
 class TaskBase {
  public:
   explicit TaskBase(std::string_view taskId, TaskLifecycle lifecycle = TaskLifecycle::disposable,
-                    TaskPriority priority = TaskPriority::normal)
-      : taskId_(taskId), lifecycle_(lifecycle), priority_(priority) {}
+                    TaskPriority priority = TaskPriority::normal, int maxRetries = 0)
+      : taskId_(taskId), lifecycle_(lifecycle), priority_(priority), maxRetries_(maxRetries) {}
 
   virtual ~TaskBase() = default;
 
@@ -116,6 +118,8 @@ class TaskBase {
   void setInput(const json& input) { input_ = input; }
   void setTaskId(std::string_view tid) { taskId_ = tid; }
   void setPriority(TaskPriority priority) { priority_ = priority; }
+  void setDependencies(const std::vector<std::string>& deps) { dependencies_ = deps; }
+  const std::vector<std::string>& getDependencies() const { return dependencies_; }
 
   void cancel() {
     cancelRequested_.store(true, std::memory_order_release);
@@ -204,6 +208,8 @@ class TaskBase {
   }
 
  private:
+  friend class TaskPool;
+
   void resetState() {
     state_.store(TaskState::pending, std::memory_order_release);
     result_ = TaskResult{};
@@ -221,6 +227,10 @@ class TaskBase {
 
   std::chrono::system_clock::time_point startTime_;
   std::chrono::system_clock::time_point endTime_;
+
+  int maxRetries_{0};
+  int currentRetries_{0};
+  std::vector<std::string> dependencies_;
 
   mutable std::mutex mutex_;
   std::condition_variable cv_;

@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "taskbase.hpp"
 #include "threadpool.hpp"
@@ -19,6 +20,7 @@ class TaskPool {
   std::unordered_map<std::string, std::shared_ptr<TaskBase>> runningTasks_;
   std::unordered_map<std::string, std::shared_ptr<TaskBase>> persistentTasks_;
   std::list<std::shared_ptr<TaskBase>> completedTasks_;
+  std::unordered_set<std::string> completedTaskIds_;
 
   mutable std::mutex tasksMutex_;
   std::condition_variable schedulerCv_;
@@ -127,25 +129,50 @@ class TaskPool {
     runningTasks_.clear();
     persistentTasks_.clear();
     completedTasks_.clear();
+    completedTaskIds_.clear();
   }
 
  private:
   void schedulerLoop() {
     while (!stopScheduler_) {
-      std::unique_lock<std::mutex> lock(tasksMutex_);
-      schedulerCv_.wait_for(lock, std::chrono::milliseconds(100),
-                            [this] { return stopScheduler_ || !pendingQueue_.empty(); });
-      if (stopScheduler_) return;
+      std::vector<std::shared_ptr<TaskBase>> tasksToExecute;
+      {
+        std::unique_lock<std::mutex> lock(tasksMutex_);
+        schedulerCv_.wait_for(lock, std::chrono::milliseconds(100),
+                              [this] { return stopScheduler_ || !pendingQueue_.empty(); });
+        if (stopScheduler_) return;
 
-      auto it = pendingQueue_.begin();
-      while (it != pendingQueue_.end()) {
-        auto task = it->second;
-        if (task->getState() == TaskState::pending) {
-          runningTasks_[task->getTaskId()] = task;
-
-          threadPool_.execute([this, task]() { executeTask(task); });
+        auto it = pendingQueue_.begin();
+        while (it != pendingQueue_.end()) {
+          auto task = it->second;
+          if (task->getState() == TaskState::pending) {
+            // Check dependencies
+            bool depsSatisfied = task->dependencies_.empty();
+            if (!depsSatisfied) {
+              depsSatisfied = true;
+              for (const auto& dep : task->dependencies_) {
+                if (completedTaskIds_.find(dep) == completedTaskIds_.end()) {
+                  depsSatisfied = false;
+                  break;
+                }
+              }
+            }
+            if (depsSatisfied) {
+              runningTasks_[task->getTaskId()] = task;
+              tasksToExecute.push_back(task);
+              it = pendingQueue_.erase(it);
+            } else {
+              ++it;
+            }
+          } else {
+            it = pendingQueue_.erase(it);
+          }
         }
-        it = pendingQueue_.erase(it);
+      }
+
+      // Execute tasks outside the lock
+      for (auto& task : tasksToExecute) {
+        threadPool_.execute([this, task]() { executeTask(task); });
       }
     }
   }
@@ -160,6 +187,22 @@ class TaskPool {
       task->failExecute("Unknown error occurred during execution.");
     }
 
+    // Handle retries
+    if (task->getState() == TaskState::failure && task->currentRetries_ < task->maxRetries_) {
+      task->currentRetries_++;
+      // Reset state for retry
+      task->state_.store(TaskState::pending, std::memory_order_release);
+      task->result_ = TaskResult{};
+      task->cancelRequested_.store(false, std::memory_order_release);
+      // Resubmit to queue
+      {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        pendingQueue_.insert({task->getPriority(), task});
+      }
+      schedulerCv_.notify_one();
+      return;
+    }
+
     taskCompleted(task);
   }
 
@@ -167,6 +210,7 @@ class TaskPool {
     std::lock_guard<std::mutex> lock(tasksMutex_);
     runningTasks_.erase(task->getTaskId());
     completedTasks_.push_back(task);
+    completedTaskIds_.insert(task->getTaskId());
   }
 
   void cleanupLoop() {
@@ -179,6 +223,7 @@ class TaskPool {
       auto it = completedTasks_.begin();
       while (it != completedTasks_.end()) {
         if ((*it)->getLifecycle() == TaskLifecycle::disposable) {
+          completedTaskIds_.erase((*it)->getTaskId());
           it = completedTasks_.erase(it);
         } else {
           ++it;

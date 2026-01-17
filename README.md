@@ -4,12 +4,13 @@
 
 ## 🚀 Key Features
 
-* **Priority Scheduling**: Supports 4 levels of priority (`low`, `normal`, `high`, `critical`) using a sorted `multimap` queue.
+* **Priority Scheduling**: Supports 5 levels of priority (`lowest`, `low`, `normal`, `high`, `critical`) with customizable values (0-255) using a sorted `multimap` queue.
 * **Flexible Task Types**:
 * **Class-based**: Inherit from `TaskBase` for complex logic.
 * **Lambda-based**: Use `FunctionalTask` for quick, "fire-and-forget" or progress-monitored functions.
-
-
+* **Batch Operations**: Submit and cancel multiple tasks in a single call for improved efficiency.
+* **Automatic Retries**: Configurable retry mechanism for failed tasks with exponential backoff potential.
+* **Task Dependencies**: Support for DAG (Directed Acyclic Graph) scheduling with inter-task dependencies to avoid manual ordering.
 * **Life-cycle Management**: Distinguish between `disposable` (clean up after finish) and `persistent` (reusable/restartable) tasks.
 * **Observability**: Integrated `TaskObserver` pattern to track progress, completion, and errors in real-time.
 * **Smart Cleanup**: Background threads automatically prune historical task info based on time (TTL) and capacity (LRU) to prevent memory bloating.

@@ -3,6 +3,7 @@
 #include <condition_variable>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <unordered_map>
 
@@ -106,6 +107,70 @@ class TaskManager : public TaskObserver {
       taskInfos_[taskId] = info;
     }
     return taskId;
+  }
+
+  std::string submitTask(const std::shared_ptr<TaskBase>& task, const json& input = {}) {
+    task->setObserver(this);
+    std::string taskId = taskPool_.submitTask(task, input);
+    {
+      std::lock_guard<std::mutex> lock(taskInfosMutex_);
+      TaskInfo info;
+      info.taskId = taskId;
+      info.lifecycle = task->getLifecycle();
+      info.name = task->getName();
+      info.description = task->getDescription();
+      info.input = input;
+      info.createdTime = std::chrono::system_clock::now();
+      info.updatedTime = info.createdTime;
+
+      taskInfos_[taskId] = info;
+    }
+    return taskId;
+  }
+
+  // Batch submit tasks
+  std::vector<std::string> submitTasks(const std::vector<std::tuple<std::string, json, TaskLifecycle, TaskPriority>>& taskSpecs) {
+    std::vector<std::string> taskIds;
+    taskIds.reserve(taskSpecs.size());
+
+    {
+      std::lock_guard<std::mutex> lock(taskFactoriesMutex_);
+      std::lock_guard<std::mutex> lockInfos(taskInfosMutex_);
+
+      for (const auto& [taskTypeName, input, lifecycle, priority] : taskSpecs) {
+        auto it = taskFactories_.find(taskTypeName);
+        if (it == taskFactories_.end()) {
+          throw std::runtime_error("Unknown task type: " + taskTypeName);
+        }
+        std::string taskId = generateTaskId();
+        auto task = it->second(taskId, lifecycle, priority);
+        task->setObserver(this);
+        taskPool_.submitTask(task, input);
+
+        TaskInfo info;
+        info.taskId = taskId;
+        info.lifecycle = lifecycle;
+        info.name = task->getName();
+        info.description = task->getDescription();
+        info.input = input;
+        info.createdTime = std::chrono::system_clock::now();
+        info.updatedTime = info.createdTime;
+
+        taskInfos_[taskId] = info;
+        taskIds.push_back(taskId);
+      }
+    }
+    return taskIds;
+  }
+
+  // Batch cancel tasks
+  std::vector<bool> cancelTasks(const std::vector<std::string>& taskIds) {
+    std::vector<bool> results;
+    results.reserve(taskIds.size());
+    for (const auto& id : taskIds) {
+      results.push_back(cancelTask(id));
+    }
+    return results;
   }
 
   bool restartTask(const std::string& taskId, const json& newInput = {}) {
