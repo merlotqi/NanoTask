@@ -1,100 +1,128 @@
-# VeloTask
+# TaskFlow
 
-**VeloTask** is a lightweight, high-performance, and thread-safe C++17 asynchronous task management library. It provides a multi-level scheduling architecture including a priority-based task pool, a robust thread pool, and a centralized management singleton.
+**TaskFlow** is a lightweight, high-performance, and thread-safe C++17 asynchronous task management library. It provides a simple yet powerful API for submitting and managing asynchronous tasks with progress tracking, cancellation, and error handling.
 
 ## 🚀 Key Features
 
-* **Priority Scheduling**: Supports 5 levels of priority (`lowest`, `low`, `normal`, `high`, `critical`) with customizable values (0-255) using a sorted `multimap` queue.
-* **Flexible Task Types**:
-* **Class-based**: Inherit from `TaskBase` for complex logic.
-* **Lambda-based**: Use `FunctionalTask` for quick, "fire-and-forget" or progress-monitored functions.
-* **Batch Operations**: Submit and cancel multiple tasks in a single call for improved efficiency.
-* **Automatic Retries**: Configurable retry mechanism for failed tasks with exponential backoff potential.
-* **Task Dependencies**: Support for DAG (Directed Acyclic Graph) scheduling with inter-task dependencies to avoid manual ordering.
-* **Life-cycle Management**: Distinguish between `disposable` (clean up after finish) and `persistent` (reusable/restartable) tasks.
-* **Observability**: Integrated `TaskObserver` pattern to track progress, completion, and errors in real-time.
-* **Smart Cleanup**: Background threads automatically prune historical task info based on time (TTL) and capacity (LRU) to prevent memory bloating.
-* **Cross-Platform**: Thread naming support for both Windows (`SetThreadDescription`) and Linux (`pthread_setname_np`).
+* **Simple API**: Submit tasks as lambda functions or callable objects
+* **Progress Tracking**: Built-in progress reporting and monitoring
+* **Cancellation Support**: Tasks can check for cancellation and handle it gracefully
+* **Error Handling**: Comprehensive error reporting and state management
+* **Thread-Safe**: Designed for concurrent access from multiple threads
+* **C++17**: Modern C++ with concepts and constexpr where available
+* **Cross-Platform**: Works on Windows, Linux, and macOS
 
 ---
 
 ## 🏗 Architecture
 
-1. **TaskManager**: The primary singleton interface. Handles task registration, submission, and global status tracking.
-2. **TaskPool**: Manages the life cycle of tasks, handles scheduling logic, and maintains the priority queue.
-3. **ThreadPool**: A low-level execution engine that manages a fixed set of worker threads.
-4. **TaskBase**: The abstract base class providing common functionality like cancellation, waiting, and state management.
+1. **TaskManager**: The main singleton that manages task submission and execution
+2. **TaskCtx**: Context object passed to tasks for state management and progress reporting
+3. **StateStorage**: Internal storage for task states, progress, and errors
+4. **Thread Pool**: Manages worker threads for task execution
 
 ---
 
 ## 💻 Quick Start
 
-### 1. Define a Custom Task
+### 1. Include the Header
 
 ```cpp
-class MyDownloadTask : public velo::TaskBase {
-public:
-    using TaskBase::TaskBase;
-    std::string getName() const override { return "Downloader"; }
-    std::string getDescription() const override { return "Downloads files via HTTP"; }
-
-    void execute() override {
-        // Business logic here
-        for(int i = 0; i <= 100; i += 10) {
-            if (isCancelRequested()) return;
-            updateProgress({{"percent", i}}); 
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        finishExecute({{"status", "complete"}});
-    }
-    void cleanup() override {}
-};
-
+#include <taskflow/task_manager.hpp>
 ```
 
-### 2. Register and Submit
+### 2. Submit a Task
 
 ```cpp
-auto& manager = velo::TaskManager::getInstance();
+// Get the task manager instance
+auto& manager = taskflow::TaskManager::getInstance();
 
-// Register the type
-manager.register_task_type<MyDownloadTask>("download_service");
+// Start processing (specify number of threads)
+manager.start_processing(4);
 
-// Submit via Type Name
-std::string id = manager.submitTask("download_service", {{"url", "https://example.com"}}, 
-                                     velo::TaskLifecycle::disposable,
-                                     velo::TaskPriority::high);
+// Submit a simple task
+auto task_id = manager.submit_task([](taskflow::TaskCtx& ctx) {
+    std::cout << "Task " << ctx.id << " is running" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ctx.success();  // Mark as successful
+});
+```
 
-// OR Submit via Lambda
-manager.submitTask([](const json& input, auto progress, auto is_cancelled) {
-    progress({{"step", "starting"}});
-    return json({{"result", "ok"}});
+### 3. Monitor Task State
+
+```cpp
+// Query task state
+auto state = manager.query_state(task_id);
+if (state) {
+    std::cout << "Task state: " << static_cast<int>(*state) << std::endl;
+}
+```
+
+### 4. Task with Progress
+
+```cpp
+auto progress_task = manager.submit_task([](taskflow::TaskCtx& ctx) {
+    for (int i = 0; i <= 100; i += 25) {
+        ctx.report_progress(static_cast<float>(i) / 100.0f, "Step " + std::to_string(i));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ctx.success();
 });
 
+// Monitor progress
+if (auto progress = manager.get_progress(progress_task)) {
+    std::cout << "Progress: " << progress->progress * 100.0f << "% - " << progress->message << std::endl;
+}
 ```
 
-### 3. Monitor Progress
+### 5. Handle Errors
 
 ```cpp
-auto info = manager.getTaskInfo(id);
-if (info) {
-    std::cout << "State: " << (int)info->state << std::endl;
-    std::cout << "Progress: " << info->currentProgressInfo.dump() << std::endl;
-}
+auto failing_task = manager.submit_task([](taskflow::TaskCtx& ctx) {
+    try {
+        // Some work that might fail
+        throw std::runtime_error("Something went wrong");
+    } catch (const std::exception& e) {
+        ctx.failure(e.what());
+    }
+});
 
+// Check for errors
+if (auto error = manager.get_error(failing_task)) {
+    std::cout << "Error: " << *error << std::endl;
+}
+```
+
+### 6. Cancellation
+
+```cpp
+auto cancellable_task = manager.submit_task([](taskflow::TaskCtx& ctx) {
+    while (!ctx.is_cancelled()) {
+        // Do work, check for cancellation periodically
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (ctx.is_cancelled()) {
+        ctx.failure("Task was cancelled");
+    } else {
+        ctx.success();
+    }
+});
+
+// Cancel the task
+manager.cancel_task(cancellable_task);
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-Within `taskmanager.hpp`, you can adjust the following constants to fit your memory constraints:
+The TaskManager automatically manages cleanup of completed tasks:
 
-* `max_info_age_`: How long finished task records stay in memory (default: **24 hours**).
-* `max_info_count_`: Maximum number of records before the LRU trimmer kicks in (default: **1000 records**).
-* `cleanup_loop`: Runs every **5 minutes** to keep the manager healthy.
+* **Cleanup Interval**: Runs every 30 minutes by default
+* **Max Task Age**: Tasks older than 24 hours are automatically cleaned up
+* **Thread Count**: Specify number of worker threads when calling `start_processing()`
 
 ## 🛠 Dependencies
 
-* [nlohmann/json](https://github.com/nlohmann/json): For input/output data and progress reporting.
-* **C++17** or higher.
+* [nlohmann/json](https://github.com/nlohmann/json): For internal data handling
+* **C++17** or higher

@@ -1,126 +1,113 @@
 #include <iostream>
-#include <velotask/taskmanager.hpp>
-
-class ExampleTask : public velo::TaskBase {
-public:
-  using TaskBase::TaskBase;
-  std::string getName() const override { return "ExampleTask"; }
-  std::string getDescription() const override { return "An example task"; }
-
-  void execute() override {
-    std::cout << "Executing task: " << getTaskId() << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    finishExecute({{"result", "success"}});
-  }
-  void cleanup() override {}
-};
-
-class FailingTask : public velo::TaskBase {
-public:
-  using TaskBase::TaskBase;
-  std::string getName() const override { return "FailingTask"; }
-  std::string getDescription() const override { return "A task that may fail"; }
-
-  void execute() override {
-    static int counter = 0;
-    counter++;
-    if (counter % 3 != 0) {  // Fail 2 out of 3 times
-      std::cout << "Task " << getTaskId() << " failed, attempt " << counter << std::endl;
-      failExecute("Simulated failure");
-    } else {
-      std::cout << "Task " << getTaskId() << " succeeded on attempt " << counter << std::endl;
-      finishExecute({{"result", "success"}});
-    }
-  }
-  void cleanup() override {}
-};
+#include <taskflow/task_manager.hpp>
 
 int main() {
-  std::cout << "VeloTask library examples" << std::endl;
+  std::cout << "TaskFlow library examples" << std::endl;
 
-  auto& manager = velo::TaskManager::getInstance();
+  // Get the task manager instance
+  auto& manager = taskflow::TaskManager::getInstance();
 
-  // Register task types
-  manager.registerTaskType<ExampleTask>("example");
+  // Start processing with 4 threads
+  manager.start_processing(4);
 
   // Example 1: Basic task submission
   std::cout << "\n1. Basic task submission:" << std::endl;
-  auto id1 = manager.submitTask("example", {}, velo::TaskLifecycle::disposable, velo::TaskPriority::normal);
+  auto task1 = [] (taskflow::TaskCtx& ctx) {
+    std::cout << "Executing task: " << ctx.id << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ctx.success();
+  };
+  auto id1 = manager.submit_task(task1);
   std::cout << "Submitted task: " << id1 << std::endl;
 
   // Wait for completion
-  auto info = manager.getTaskInfo(id1);
-  while (info && info->state != velo::TaskState::success && info->state != velo::TaskState::failure) {
+  while (true) {
+    auto state = manager.query_state(id1);
+    if (state && *state != taskflow::TaskState::running && *state != taskflow::TaskState::created) {
+      std::cout << "Task completed with state: " << static_cast<int>(*state) << std::endl;
+      break;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    info = manager.getTaskInfo(id1);
   }
-  std::cout << "Task completed with state: " << (int)info->state << std::endl;
 
-  // Example 2: Batch submission
-  std::cout << "\n2. Batch task submission:" << std::endl;
-  std::vector<std::tuple<std::string, velo::json, velo::TaskLifecycle, velo::TaskPriority>> batchTasks = {
-    {"example", {}, velo::TaskLifecycle::disposable, velo::TaskPriority::high},
-    {"example", {}, velo::TaskLifecycle::disposable, velo::TaskPriority::low},
-    {"example", {}, velo::TaskLifecycle::disposable, velo::TaskPriority::normal}
-  };
-  auto batchIds = manager.submitTasks(batchTasks);
-  std::cout << "Submitted " << batchIds.size() << " tasks in batch" << std::endl;
+  // Example 2: Multiple tasks
+  std::cout << "\n2. Multiple task submission:" << std::endl;
+  std::vector<taskflow::TaskID> task_ids;
+  for (int i = 0; i < 3; ++i) {
+    auto task = [i] (taskflow::TaskCtx& ctx) {
+      std::cout << "Task " << i << " (ID: " << ctx.id << ") executing" << std::endl;
+      std::this_thread::sleep_for(std::chrono::milliseconds(50 + i * 25));
+      ctx.success();
+    };
+    auto id = manager.submit_task(task);
+    task_ids.push_back(id);
+    std::cout << "Submitted task " << i << ": " << id << std::endl;
+  }
 
   // Wait for all to complete
-  bool allDone = false;
-  while (!allDone) {
-    allDone = true;
-    for (const auto& id : batchIds) {
-      auto taskInfo = manager.getTaskInfo(id);
-      if (taskInfo && (taskInfo->state == velo::TaskState::pending || taskInfo->state == velo::TaskState::running)) {
-        allDone = false;
+  bool all_done = false;
+  while (!all_done) {
+    all_done = true;
+    for (auto id : task_ids) {
+      auto state = manager.query_state(id);
+      if (!state || *state == taskflow::TaskState::running || *state == taskflow::TaskState::created) {
+        all_done = false;
         break;
       }
     }
-    if (!allDone) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    if (!all_done) std::this_thread::sleep_for(std::chrono::milliseconds(50));
   }
-  std::cout << "All batch tasks completed" << std::endl;
+  std::cout << "All tasks completed" << std::endl;
 
-  // Example 3: Retry mechanism
-  std::cout << "\n3. Retry mechanism:" << std::endl;
-  auto failingTask = std::make_shared<FailingTask>("failing_task", velo::TaskLifecycle::disposable, velo::TaskPriority::normal, 2);
-  auto failId = manager.submitTask(failingTask, {});
-  std::cout << "Submitted failing task: " << failId << std::endl;
+  // Example 3: Task with failure
+  std::cout << "\n3. Task with failure:" << std::endl;
+  auto failing_task = [] (taskflow::TaskCtx& ctx) {
+    std::cout << "Task " << ctx.id << " failing" << std::endl;
+    ctx.failure("Simulated failure");
+  };
+  auto fail_id = manager.submit_task(failing_task);
+  std::cout << "Submitted failing task: " << fail_id << std::endl;
 
   // Wait for completion
-  info = manager.getTaskInfo(failId);
-  while (info && info->state != velo::TaskState::success && info->state != velo::TaskState::failure) {
+  while (true) {
+    auto state = manager.query_state(fail_id);
+    if (state && *state != taskflow::TaskState::running && *state != taskflow::TaskState::created) {
+      std::cout << "Failing task completed with state: " << static_cast<int>(*state) << std::endl;
+      if (auto error = manager.get_error(fail_id)) {
+        std::cout << "Error message: " << *error << std::endl;
+      }
+      break;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    info = manager.getTaskInfo(failId);
   }
-  std::cout << "Failing task final state: " << (int)info->state << std::endl;
 
-  // Example 4: Task dependencies
-  std::cout << "\n4. Task dependencies:" << std::endl;
-  auto dep1 = manager.submitTask("example", {}, velo::TaskLifecycle::disposable, velo::TaskPriority::normal);
-  auto dep2 = manager.submitTask("example", {}, velo::TaskLifecycle::disposable, velo::TaskPriority::normal);
+  // Example 4: Task with progress
+  std::cout << "\n4. Task with progress:" << std::endl;
+  auto progress_task = [] (taskflow::TaskCtx& ctx) {
+    for (int i = 0; i <= 100; i += 25) {
+      ctx.report_progress(static_cast<float>(i) / 100.0f, "Processing step " + std::to_string(i));
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ctx.success();
+  };
+  auto progress_id = manager.submit_task(progress_task);
+  std::cout << "Submitted progress task: " << progress_id << std::endl;
 
-  // Create dependent task
-  auto dependentTask = std::make_shared<ExampleTask>("dependent_task");
-  dependentTask->setDependencies({dep1, dep2});
-  auto depId = manager.submitTask(dependentTask, {});
-
-  std::cout << "Submitted dependent task: " << depId << " (depends on " << dep1 << " and " << dep2 << ")" << std::endl;
-
-  // Wait for dependent task
-  info = manager.getTaskInfo(depId);
-  while (info && info->state != velo::TaskState::success && info->state != velo::TaskState::failure) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    info = manager.getTaskInfo(depId);
+  // Monitor progress
+  while (true) {
+    auto state = manager.query_state(progress_id);
+    if (state && *state != taskflow::TaskState::running && *state != taskflow::TaskState::created) {
+      std::cout << "Progress task completed with state: " << static_cast<int>(*state) << std::endl;
+      break;
+    }
+    if (auto progress = manager.get_progress(progress_id)) {
+      std::cout << "Progress: " << progress->progress * 100.0f << "% - " << progress->message << std::endl;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  std::cout << "Dependent task completed" << std::endl;
 
-  // Example 5: Custom priority
-  std::cout << "\n5. Custom priority:" << std::endl;
-  auto customTask = std::make_shared<ExampleTask>("custom_priority_task");
-  customTask->setPriority(static_cast<velo::TaskPriority>(150));  // Higher than critical
-  auto customId = manager.submitTask(customTask, {});
-  std::cout << "Submitted task with custom priority 150: " << customId << std::endl;
+  // Stop processing
+  manager.stop_processing();
 
   std::cout << "\nAll examples completed!" << std::endl;
   return 0;
