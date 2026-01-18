@@ -1,5 +1,6 @@
 #pragma once
 
+#include <any>
 #include <chrono>
 #include <mutex>
 #include <optional>
@@ -12,10 +13,16 @@
 
 namespace taskflow {
 
-struct ProgressInfo {
-  float progress{0.0f};
-  std::string message;
+// Template for progress info storage - uses task traits
+template <typename TaskType>
+struct TaskProgressInfo {
+  using ProgressInfoType = typename task_traits<TaskType>::progress_info_type;
+  ProgressInfoType data;
   std::chrono::system_clock::time_point timestamp{std::chrono::system_clock::now()};
+
+  TaskProgressInfo() = default;
+  TaskProgressInfo(ProgressInfoType info, std::chrono::system_clock::time_point ts = std::chrono::system_clock::now())
+      : data(std::move(info)), timestamp(ts) {}
 };
 
 class StateStorage {
@@ -43,17 +50,37 @@ class StateStorage {
     timestamps_.erase(id);
     progress_info_.erase(id);
     error_messages_.erase(id);
+    result_locators_.erase(id);
   }
 
-  void set_progress(TaskID id, float progress, const std::string& message = "") {
+  // Template method to set progress with custom type
+  template <typename ProgressType>
+  void set_progress(TaskID id, ProgressType progress_info) {
     std::unique_lock lock(mutex_);
-    progress_info_[id] = {progress, message, std::chrono::system_clock::now()};
+    progress_info_[id] = std::make_any<ProgressType>(std::move(progress_info));
+    timestamps_[id] = std::chrono::system_clock::now();
   }
 
-  [[nodiscard]] std::optional<ProgressInfo> get_progress(TaskID id) const {
+  // Template method to get progress with custom type
+  template <typename ProgressType>
+  [[nodiscard]] std::optional<ProgressType> get_progress(TaskID id) const {
     std::shared_lock lock(mutex_);
     auto it = progress_info_.find(id);
-    return it != progress_info_.end() ? std::optional<ProgressInfo>(it->second) : std::nullopt;
+    if (it != progress_info_.end()) {
+      try {
+        return std::any_cast<ProgressType>(it->second);
+      } catch (const std::bad_any_cast&) {
+        return std::nullopt;
+      }
+    }
+    return std::nullopt;
+  }
+
+  // Backward compatibility method
+  void set_progress(TaskID id, float progress, const std::string& message = "") {
+    std::unique_lock lock(mutex_);
+    progress_info_[id] = std::make_any<std::pair<float, std::string>>(progress, message);
+    timestamps_[id] = std::chrono::system_clock::now();
   }
 
   void set_error(TaskID id, const std::string& message) {
@@ -65,6 +92,17 @@ class StateStorage {
     std::shared_lock lock(mutex_);
     auto it = error_messages_.find(id);
     return it != error_messages_.end() ? std::optional<std::string>(it->second) : std::nullopt;
+  }
+
+  void set_result_locator(TaskID id, ResultLocator locator) {
+    std::unique_lock lock(mutex_);
+    result_locators_[id] = locator;
+  }
+
+  [[nodiscard]] std::optional<ResultLocator> get_result_locator(TaskID id) const {
+    std::shared_lock lock(mutex_);
+    auto it = result_locators_.find(id);
+    return it != result_locators_.end() ? std::optional<ResultLocator>(it->second) : std::nullopt;
   }
 
   [[nodiscard]] std::optional<std::chrono::system_clock::time_point> get_timestamp(TaskID id) const {
@@ -137,8 +175,9 @@ class StateStorage {
 
   std::unordered_map<TaskID, TaskState> states_;
   std::unordered_map<TaskID, std::chrono::system_clock::time_point> timestamps_;
-  std::unordered_map<TaskID, ProgressInfo> progress_info_;
+  std::unordered_map<TaskID, std::any> progress_info_;
   std::unordered_map<TaskID, std::string> error_messages_;
+  std::unordered_map<TaskID, ResultLocator> result_locators_;
 };
 
 }  // namespace taskflow

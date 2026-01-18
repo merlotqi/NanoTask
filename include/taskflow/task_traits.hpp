@@ -1,18 +1,19 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <mutex>
+#include <optional>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
-#if __cplusplus >= 202002L
-#include <concepts>
-#define TASKFLOW_V2_HAS_CXX20 1
-#endif
+#include <nlohmann/json.hpp>
 
 namespace taskflow {
 
-// Type name utilities - compatible with C++17
 namespace detail {
 
 // Extract type name from function signature
@@ -77,18 +78,181 @@ enum class TaskPriority : std::uint8_t {
   critical = 100,
 };
 
+// Task Lifecycle enumeration
+enum class TaskLifecycle : std::uint8_t {
+  disposable,
+  persistent,
+};
+
+// Task Observability enumeration
+enum class TaskObservability : std::uint8_t {
+  none,       // No observation capabilities
+  basic,      // Basic observation (start/end states only)
+  progress    // Full observation (states + progress reporting)
+};
+
 // Task ID type
 using TaskID = std::uint64_t;
+
+// Result ID type
+using ResultID = std::uint64_t;
+
+// Result kind enumeration
+enum class ResultKind : std::uint8_t {
+  none,     // No result
+  json,     // JSON data
+  file,     // File path
+  text,     // Plain text
+  binary,   // Binary data
+  custom    // Custom result type
+};
+
+// Result locator for referencing stored results
+struct ResultLocator {
+  ResultID id{0};
+  ResultKind kind{ResultKind::none};
+  std::string metadata;  // Additional metadata (optional)
+
+  ResultLocator() = default;
+  ResultLocator(ResultID result_id, ResultKind result_kind, std::string meta = "")
+      : id(result_id), kind(result_kind), metadata(std::move(meta)) {}
+
+  [[nodiscard]] bool valid() const { return id != 0; }
+
+  // Comparison operators for use in std::map
+  bool operator<(const ResultLocator& other) const {
+    if (id != other.id) return id < other.id;
+    if (static_cast<int>(kind) != static_cast<int>(other.kind)) {
+      return static_cast<int>(kind) < static_cast<int>(other.kind);
+    }
+    return metadata < other.metadata;
+  }
+
+  bool operator==(const ResultLocator& other) const {
+    return id == other.id && kind == other.kind && metadata == other.metadata;
+  }
+};
+
+// Result payload variants
+struct ResultPayload {
+  ResultKind kind{ResultKind::none};
+
+  // Union-like storage for different result types
+  struct {
+    nlohmann::json json_data;
+    std::string text_data;
+    std::string file_path;
+    std::vector<std::uint8_t> binary_data;
+    std::string custom_data;
+  } data;
+
+  ResultPayload() = default;
+
+  // JSON result
+  static ResultPayload json(const nlohmann::json& j) {
+    ResultPayload p;
+    p.kind = ResultKind::json;
+    p.data.json_data = j;
+    return p;
+  }
+
+  // Text result
+  static ResultPayload text(std::string text) {
+    ResultPayload p;
+    p.kind = ResultKind::text;
+    p.data.text_data = std::move(text);
+    return p;
+  }
+
+  // File result
+  static ResultPayload file(std::string path) {
+    ResultPayload p;
+    p.kind = ResultKind::file;
+    p.data.file_path = std::move(path);
+    return p;
+  }
+
+  // Binary result
+  static ResultPayload binary(std::vector<std::uint8_t> data) {
+    ResultPayload p;
+    p.kind = ResultKind::binary;
+    p.data.binary_data = std::move(data);
+    return p;
+  }
+
+  // Custom result
+  static ResultPayload custom(std::string data) {
+    ResultPayload p;
+    p.kind = ResultKind::custom;
+    p.data.custom_data = std::move(data);
+    return p;
+  }
+};
+
+// Result storage interface for tasks
+class ResultStorage {
+ public:
+  virtual ~ResultStorage() = default;
+
+  // Store result and return locator
+  virtual ResultLocator store_result(ResultPayload payload) = 0;
+
+  // Retrieve result by locator
+  virtual std::optional<ResultPayload> get_result(const ResultLocator& locator) const = 0;
+
+  // Remove result
+  virtual bool remove_result(const ResultLocator& locator) = 0;
+
+  // Generate next result ID
+  virtual ResultID next_result_id() = 0;
+};
+
+// Simple in-memory result storage implementation
+class SimpleResultStorage : public ResultStorage {
+ public:
+  SimpleResultStorage() = default;
+
+  ResultLocator store_result(ResultPayload payload) override {
+    std::unique_lock lock(mutex_);
+    ResultID id = next_id_++;
+    ResultLocator locator{id, payload.kind};
+    results_[locator] = std::move(payload);
+    return locator;
+  }
+
+  std::optional<ResultPayload> get_result(const ResultLocator& locator) const override {
+    std::shared_lock lock(mutex_);
+    auto it = results_.find(locator);
+    return it != results_.end() ? std::optional<ResultPayload>(it->second) : std::nullopt;
+  }
+
+  bool remove_result(const ResultLocator& locator) override {
+    std::unique_lock lock(mutex_);
+    return results_.erase(locator) > 0;
+  }
+
+  ResultID next_result_id() override {
+    std::unique_lock lock(mutex_);
+    return next_id_++;
+  }
+
+ private:
+  mutable std::shared_mutex mutex_;
+  std::map<ResultLocator, ResultPayload> results_;
+  ResultID next_id_{1};
+};
 
 // Default task traits
 template <typename T>
 struct task_traits {
+  // metadata
   static constexpr std::string_view name = taskflow::type_name<T>();
   static constexpr std::string_view description = "";
-  static constexpr bool cancellable = false;
-  static constexpr bool observable = false;
   static constexpr TaskPriority priority = TaskPriority::normal;
-  using state_type = TaskState;
+
+  // capabilities
+  static constexpr bool cancellable = false;
+  static constexpr TaskObservability observability = TaskObservability::basic;
 };
 
 // Task trait detection using SFINAE
@@ -108,9 +272,27 @@ struct is_cancellable_task : std::conjunction<is_task<T>, std::bool_constant<tas
 template <typename T>
 constexpr bool is_cancellable_task_v = is_cancellable_task<T>::value;
 
-// Observable task trait
+// Basic observable task trait (supports basic observation)
 template <typename T>
-struct is_observable_task : std::conjunction<is_task<T>, std::bool_constant<task_traits<T>::observable>> {};
+struct is_basic_observable_task : std::conjunction<is_task<T>,
+    std::bool_constant<task_traits<T>::observability == TaskObservability::basic ||
+                       task_traits<T>::observability == TaskObservability::progress>> {};
+
+template <typename T>
+constexpr bool is_basic_observable_task_v = is_basic_observable_task<T>::value;
+
+// Progress observable task trait (supports progress reporting)
+template <typename T>
+struct is_progress_observable_task : std::conjunction<is_task<T>,
+    std::bool_constant<task_traits<T>::observability == TaskObservability::progress>> {};
+
+template <typename T>
+constexpr bool is_progress_observable_task_v = is_progress_observable_task<T>::value;
+
+// Legacy observable task trait (for backward compatibility)
+template <typename T>
+struct is_observable_task : std::conjunction<is_task<T>,
+    std::bool_constant<task_traits<T>::observability != TaskObservability::none>> {};
 
 template <typename T>
 constexpr bool is_observable_task_v = is_observable_task<T>::value;
@@ -153,7 +335,6 @@ constexpr auto validate_priority() {
   return priority_traits<P>{};
 }
 
-// Type-safe task input validation using SFINAE
 template <typename T>
 struct is_valid_task_input : std::disjunction<std::is_arithmetic<T>, std::is_same<T, std::string>> {};
 

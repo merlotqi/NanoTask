@@ -55,7 +55,7 @@ install(EXPORT TaskFlowTargets
 )
 
 configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/TaskFlowConfig.cmake.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/TaskFlowConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/TaskFlowConfig.cmake"
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TaskFlow
 )

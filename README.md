@@ -5,9 +5,10 @@
 ## 🚀 Key Features
 
 * **Simple API**: Submit tasks as lambda functions or callable objects
-* **Progress Tracking**: Built-in progress reporting and monitoring
+* **Flexible Observability**: Choose between no observation, basic state tracking, or full progress reporting
 * **Cancellation Support**: Tasks can check for cancellation and handle it gracefully
 * **Error Handling**: Comprehensive error reporting and state management
+* **Persistent Tasks**: Reusable tasks that can be reawakened with new parameters
 * **Thread-Safe**: Designed for concurrent access from multiple threads
 * **C++17**: Modern C++ with concepts and constexpr where available
 * **Cross-Platform**: Works on Windows, Linux, and macOS
@@ -111,6 +112,81 @@ auto cancellable_task = manager.submit_task([](taskflow::TaskCtx& ctx) {
 // Cancel the task
 manager.cancel_task(cancellable_task);
 ```
+
+### 7. Task Results
+
+Tasks can now store execution results that persist beyond completion:
+
+```cpp
+auto result_task = manager.submit_task([](taskflow::TaskCtx& ctx) {
+    // Process data and create result
+    nlohmann::json result = {
+        {"processed_items", 42},
+        {"success_rate", 0.95},
+        {"output", "processed data"}
+    };
+
+    // Store result with task completion
+    ctx.success_with_result(taskflow::ResultPayload::json(result));
+});
+
+// Retrieve result after completion
+if (auto result = manager.get_result(result_task)) {
+    if (result->kind == taskflow::ResultKind::json) {
+        std::cout << "Result: " << result->data.json_data.dump() << std::endl;
+    }
+}
+```
+
+### 8. Persistent Tasks
+
+Persistent tasks can be reawakened with new parameters after completion:
+
+```cpp
+// Submit a persistent task
+auto persistent_id = manager.submit_task([](taskflow::TaskCtx& ctx) {
+    std::cout << "Initial execution" << std::endl;
+    ctx.success();
+}, taskflow::TaskLifecycle::persistent);
+
+// Check if it's persistent
+if (manager.is_persistent_task(persistent_id)) {
+    // Reawaken with new logic
+    manager.reawaken_task(persistent_id, [](taskflow::TaskCtx& ctx) {
+        std::cout << "Reawakened with new logic!" << std::endl;
+        ctx.success();
+    });
+}
+```
+
+---
+
+## 🔧 Task Traits Configuration
+
+You can customize task behavior by specializing the `task_traits` template:
+
+```cpp
+// Example: Define a custom task type with specific traits
+struct MyProgressTask {
+    static constexpr taskflow::TaskObservability observability = taskflow::TaskObservability::progress;
+    static constexpr bool cancellable = true;
+};
+
+// Use the custom task
+MyProgressTask my_task;
+auto task_id = manager.submit_task(my_task);
+```
+
+### Available Task Capabilities
+
+- **Observability Levels**:
+  - `TaskObservability::none`: No observation capabilities
+  - `TaskObservability::basic`: Basic state observation (start/end only)
+  - `TaskObservability::progress`: Full observation with progress reporting
+
+- **Cancellation**: Set `cancellable = true` to enable cancellation support
+
+- **Lifecycle**: Choose between `TaskLifecycle::disposable` and `TaskLifecycle::persistent`
 
 ---
 

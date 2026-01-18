@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <functional>
 #include <string>
 
@@ -16,26 +15,34 @@ class StateStorage;
 struct TaskCtx {
   TaskID id;
   StateStorage* states;
+  ResultStorage* result_storage{nullptr};  // Optional result storage
   std::function<bool(TaskID)> cancellation_checker;  // For cancellation checking
 
   // Lifecycle management
   void begin();
   void update_progress(float progress, const std::string& message = "");
   void success();
+  void success_with_result(ResultPayload result);
   void failure(const std::string& error_message = "");
+  void failure_with_result(const std::string& error_message, ResultPayload result);
 
   // Cancellation support - check with callback if available
   [[nodiscard]] bool is_cancelled() const { return cancellation_checker ? cancellation_checker(id) : false; }
 
-  // Progress reporting
-  struct ProgressInfo {
-    float progress{0.0f};
-    std::string message;
-    std::chrono::system_clock::time_point timestamp{std::chrono::system_clock::now()};
-  };
+  // Progress reporting - accepts any type defined by traits
+  template <typename ProgressType>
+  void report_progress(const ProgressType& progress_info) {
+    if (states) {
+      states->set_progress(id, progress_info);
+    }
+  }
 
-  void report_progress(const ProgressInfo& info);
-  void report_progress(float progress, const std::string& message = "");
+  // Backward compatibility
+  void report_progress(float progress, const std::string& message = "") {
+    if (states) {
+      states->set_progress(id, progress, message);
+    }
+  }
 
   // State queries
   [[nodiscard]] TaskState current_state() const;
@@ -84,17 +91,7 @@ inline void taskflow::TaskCtx::failure(const std::string& error_message) {
   }
 }
 
-inline void taskflow::TaskCtx::report_progress(const ProgressInfo& info) {
-  if (states) {
-    states->set_progress(id, info.progress, info.message);
-  }
-}
 
-inline void taskflow::TaskCtx::report_progress(float progress, const std::string& message) {
-  if (states) {
-    states->set_progress(id, progress, message);
-  }
-}
 
 inline taskflow::TaskState taskflow::TaskCtx::current_state() const {
   if (states) {
@@ -102,4 +99,25 @@ inline taskflow::TaskState taskflow::TaskCtx::current_state() const {
     return state.value_or(taskflow::TaskState::created);
   }
   return taskflow::TaskState::created;
+}
+
+inline void taskflow::TaskCtx::success_with_result(taskflow::ResultPayload result) {
+  if (result_storage && states) {
+    auto locator = result_storage->store_result(std::move(result));
+    states->set_result_locator(id, locator);
+    states->set_state(id, taskflow::TaskState::success);
+  } else {
+    success();
+  }
+}
+
+inline void taskflow::TaskCtx::failure_with_result(const std::string& error_message, taskflow::ResultPayload result) {
+  if (result_storage && states) {
+    auto locator = result_storage->store_result(std::move(result));
+    states->set_result_locator(id, locator);
+    states->set_state(id, taskflow::TaskState::failure);
+    states->set_error(id, error_message);
+  } else {
+    failure(error_message);
+  }
 }
