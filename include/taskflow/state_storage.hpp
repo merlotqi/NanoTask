@@ -13,18 +13,6 @@
 
 namespace taskflow {
 
-// Template for progress info storage - uses task traits
-template <typename TaskType>
-struct TaskProgressInfo {
-  using ProgressInfoType = typename task_traits<TaskType>::progress_info_type;
-  ProgressInfoType data;
-  std::chrono::system_clock::time_point timestamp{std::chrono::system_clock::now()};
-
-  TaskProgressInfo() = default;
-  TaskProgressInfo(ProgressInfoType info, std::chrono::system_clock::time_point ts = std::chrono::system_clock::now())
-      : data(std::move(info)), timestamp(ts) {}
-};
-
 class StateStorage {
  public:
   void set_state(TaskID id, TaskState state) {
@@ -56,6 +44,14 @@ class StateStorage {
   // Template method to set progress with custom type
   template <typename ProgressType>
   void set_progress(TaskID id, ProgressType progress_info) {
+    static_assert(is_valid_progress_type<ProgressType>::value,
+                  "\n==============================================================================\n"
+                  " [TaskFlow Error]: Invalid ProgressType detected!\n"
+                  " ------------------------------------------------------------------------------\n"
+                  " 1. SIZE LIMIT: Progress objects must be <= 1024 bytes (1KB) to ensure low-latency.\n"
+                  " 2. TYPE LIMIT: Only trivially copyable structs, std::string, or nlohmann::json are allowed.\n"
+                  " 3. RECOMMENDATION: Do not attach large business data here. Use ResultStorage instead.\n"
+                  "==============================================================================");
     std::unique_lock lock(mutex_);
     progress_info_[id] = std::make_any<ProgressType>(std::move(progress_info));
     timestamps_[id] = std::chrono::system_clock::now();

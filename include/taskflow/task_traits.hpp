@@ -3,14 +3,13 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <vector>
-
-#include <nlohmann/json.hpp>
 
 namespace taskflow {
 
@@ -86,9 +85,9 @@ enum class TaskLifecycle : std::uint8_t {
 
 // Task Observability enumeration
 enum class TaskObservability : std::uint8_t {
-  none,       // No observation capabilities
-  basic,      // Basic observation (start/end states only)
-  progress    // Full observation (states + progress reporting)
+  none,     // No observation capabilities
+  basic,    // Basic observation (start/end states only)
+  progress  // Full observation (states + progress reporting)
 };
 
 // Task ID type
@@ -99,12 +98,12 @@ using ResultID = std::uint64_t;
 
 // Result kind enumeration
 enum class ResultKind : std::uint8_t {
-  none,     // No result
-  json,     // JSON data
-  file,     // File path
-  text,     // Plain text
-  binary,   // Binary data
-  custom    // Custom result type
+  none,    // No result
+  json,    // JSON data
+  file,    // File path
+  text,    // Plain text
+  binary,  // Binary data
+  custom   // Custom result type
 };
 
 // Result locator for referencing stored results
@@ -274,28 +273,39 @@ constexpr bool is_cancellable_task_v = is_cancellable_task<T>::value;
 
 // Basic observable task trait (supports basic observation)
 template <typename T>
-struct is_basic_observable_task : std::conjunction<is_task<T>,
-    std::bool_constant<task_traits<T>::observability == TaskObservability::basic ||
-                       task_traits<T>::observability == TaskObservability::progress>> {};
+struct is_basic_observable_task
+    : std::conjunction<is_task<T>, std::bool_constant<task_traits<T>::observability == TaskObservability::basic ||
+                                                      task_traits<T>::observability == TaskObservability::progress>> {};
 
 template <typename T>
 constexpr bool is_basic_observable_task_v = is_basic_observable_task<T>::value;
 
 // Progress observable task trait (supports progress reporting)
 template <typename T>
-struct is_progress_observable_task : std::conjunction<is_task<T>,
-    std::bool_constant<task_traits<T>::observability == TaskObservability::progress>> {};
+struct is_progress_observable_task
+    : std::conjunction<is_task<T>, std::bool_constant<task_traits<T>::observability == TaskObservability::progress>> {};
 
 template <typename T>
 constexpr bool is_progress_observable_task_v = is_progress_observable_task<T>::value;
 
 // Legacy observable task trait (for backward compatibility)
 template <typename T>
-struct is_observable_task : std::conjunction<is_task<T>,
-    std::bool_constant<task_traits<T>::observability != TaskObservability::none>> {};
+struct is_observable_task
+    : std::conjunction<is_task<T>, std::bool_constant<task_traits<T>::observability != TaskObservability::none>> {};
 
 template <typename T>
 constexpr bool is_observable_task_v = is_observable_task<T>::value;
+
+template <typename T>
+struct is_valid_progress_type {
+  static constexpr bool value = []() {
+    if constexpr (std::is_arithmetic_v<T>) return true;
+    if constexpr (std::is_same_v<T, nlohmann::json> || std::is_same_v<T, std::string>) return true;
+    if constexpr (std::is_trivially_copyable_v<T> && sizeof(T) <= 512) return true;
+
+    return false;
+  }();
+};
 
 // Priority validation traits
 template <TaskPriority P>
